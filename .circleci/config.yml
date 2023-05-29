@@ -1,0 +1,65 @@
+# Use the latest 2.1 version of CircleCI pipeline process engine.
+# See: https://circleci.com/docs/configuration-reference
+version: 2.1
+
+orbs:
+  python: circleci/python@1.5.0
+
+jobs:
+  build-and-test:
+    docker:
+      - image: cimg/python:3.10.2
+
+    steps:
+      - checkout
+      - python/install-packages:
+          pkg-manager: pip
+      - run:
+          name: Run Tests
+          command: cd src/python/test && pytest -v sample_test.py
+
+  build-postgres:
+    # Primary container image where all commands run
+    docker:
+      - image: cimg/python:3.10
+        environment:
+          TEST_DATABASE_URL: postgresql://postgres@localhost/circle_test
+        auth:
+          username: mydockerhub-user
+          password: $DOCKERHUB_PASSWORD # context / project UI env-var reference
+
+      # Service container image
+      - image: cimg/postgres:14.0
+        environment:
+          POSTGRES_USER: postgres
+        auth:
+          username: mydockerhub-user
+          password: $DOCKERHUB_PASSWORD # context / project UI env-var reference
+
+    steps:
+      - checkout
+      - python/install-packages:
+          pkg-manager: pip
+      - run:
+          name: Update Environment
+          command: sudo apt-get update
+      - run:
+          name: Install Postgres Client
+          command: sudo apt-get install postgresql-client
+      - run: whoami
+      - run:
+          name: Create Database Tables
+          command: |
+            psql \
+            -d $TEST_DATABASE_URL \
+            -c "create user travis;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO travis;"
+      - run:
+          name: Database Connection Test
+          command: cd src/python/test && pytest -v connection_test.py
+
+workflows:
+  demo:
+    jobs:
+      - build-and-test
+      - build-postgres
